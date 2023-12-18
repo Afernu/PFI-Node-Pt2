@@ -71,6 +71,8 @@ function attachCmd() {
     $('#renderManageUsersMenuCmd').on('click', renderManageUsers);
     $('#editProfilCmd').on('click', renderEditProfilForm);
     $('#aboutCmd').on("click", renderAbout);
+    $('#newPhotoCmd').on('click', renderCreatePhoto);
+    $('#editPhoto').on('click', renderEditPhotoForm);
 }
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// Header management
@@ -104,6 +106,7 @@ function loggedUserMenu() {
             </span>`;
 }
 function viewMenu(viewName) {
+    //Filtrer les photos
     if (viewName == "photosList") {
         // todo
         return "";
@@ -166,6 +169,39 @@ function UpdateHeader(viewTitle, viewName) {
     attachCmd();
 }
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+async function savePhoto(photoData) {
+    console.log("Saving photo");
+    let userID = API.retrieveLoggedUser()
+    let date = Date.now();
+    loginMessage = "";
+    EmailError = "";
+    passwordError = "";
+    let data = $('#partagerCheckbox').is(':checked');
+
+
+    const createPhotoData = {
+        Title: photoData.Titre,
+        OwnerId: userID.Id,
+        Date: date,
+        Description: photoData.Description,
+        Shared: data,
+        Image: photoData.Image
+    };
+
+    try {
+        const createPhotoResponse = await API.CreatePhoto(createPhotoData);
+
+        if (createPhotoResponse) {
+            renderPhotos();
+        } else {
+            renderError("Failed to create the photo");
+        }
+    } catch (error) {
+        renderError("An error occurred while creating the photo");
+    }
+}
+
+
 /// Actions and command
 async function login(credential) {
     console.log("login");
@@ -209,6 +245,21 @@ async function verify(verifyCode) {
         renderPhotos();
     } else {
         renderError("Désolé, votre code de vérification n'est pas valide...");
+    }
+}
+async function editPhoto(photo) {
+    if(await API.UpdatePhoto(photo)){
+        let loggedUser = API.retrieveLoggedUser();
+        if(loggedUser)
+            if(isVerified)
+                renderPhotos();
+            else
+                renderVerify();
+        else
+            renderLoginForm();
+    }
+    else {
+        renderError("Un problème est survenu.");
     }
 }
 async function editProfil(profil) {
@@ -313,6 +364,66 @@ async function renderError(message) {
         `)
     ); */
 }
+function renderCreatePhoto() {
+    timeout();
+    saveContentScrollPosition();
+    eraseContent();
+    UpdateHeader("Ajout de photos", "Test");
+    $("#content").append(`
+        <br/>
+        <form class="form" id="createPhotoForm"'>
+            <fieldset>
+                <legend>Informations</legend>
+                <input  type="text" 
+                        class="form-control Alpha" 
+                        name="Titre" 
+                        id="Titre"
+                        placeholder="Titre" 
+                        required 
+                        RequireMessage = 'Veuillez entrez un titre'
+                        InvalidMessage = 'Titre invalide'
+                        CustomErrorMessage ="Une erreur est apparue"/>
+
+                <textarea class="form-control" 
+                        name="Description" 
+                        id="Description" 
+                        rows="6"
+                        placeholder="Description" 
+                        required 
+                        requiremessage="Veuillez entrez une description" 
+                        invalidmessage="Une erreur">
+              </textarea>
+                <label>
+                <input type="checkbox" name="partagerCheckbox"> Partager
+                </label>
+              </fieldset>
+            
+            <fieldset>
+                <legend>Image</legend>
+                <div class='imageUploader' 
+                        newImage='true' 
+                        controlId='Image' 
+                        imageSrc='images/PhotoCloudLogo.png' 
+                        waitingImage="images/Loading_icon.gif">
+            </div>
+            </fieldset>
+   
+            <input type='submit' name='submit' id='savePhoto' value="Enregistrer" class="form-control btn-primary">
+        </form>
+        <div class="cancel">
+            <button class="form-control btn-secondary" id="abortCreatePhotoCmd">Annuler</button>
+        </div>
+    `);
+    initFormValidation();
+    initImageUploaders();
+    $('#abortCreatePhotoCmd').on('click', renderPhotosList);
+    $('#createPhotoForm').on("submit", function (event) {
+        let data = getFormData($('#createPhotoForm'));
+        event.preventDefault();
+        showWaitingGif();
+        savePhoto(data)
+    });
+}
 function renderAbout() {
     timeout();
     saveContentScrollPosition();
@@ -353,8 +464,46 @@ async function renderPhotos() {
     }
 }
 async function renderPhotosList() {
-    eraseContent();
-    $("#content").append("<h2> En contruction </h2>");
+    try {
+        timeout();
+        eraseContent();
+        const photos = await API.GetPhotos();
+
+        if (photos) {
+            $("#content").append(`
+                <div class="photosLayout" id="photosList"></div>
+            `);
+
+            const photosListElement = $("#photosList");
+
+            photos.data.forEach(photo => {
+                photosListElement.append(renderPhotoLayout(photo));
+            });
+        } else {
+            renderError("Failed to fetch photos. Please try again.");
+        }
+    } catch (error) {
+        renderError(`An error occurred: ${error.message}`);
+    }
+}
+
+function renderPhotoLayout(photo) {
+    return `
+        <div class="photoLayout">
+            <div class="photoTitle">${photo.Title}</div>
+            <input type="hidden" id=${photo.Id}>
+            <div class="photoDetailsOwner">${photo.Owner.Name}</div>
+            <div class="photoImageContainer">
+                <div class="photoAvatar" style="background-image: url(${photo.Owner.Avatar})"></div>
+                <div class="photoImage" id="editPhoto" style="background-image: url(${photo.Image})"></div>
+            </div>
+            <div class="photoCreationDate">${convertToFrenchDate(photo.Date)}</div>
+        </div>
+    `;
+}
+
+function renderError(message) {
+    $("#content").append(`<p class="error-message">${message}</p>`);
 }
 function renderVerify() {
     eraseContent();
@@ -572,6 +721,74 @@ async function renderConfirmDeleteAccount(userId) {
         } else {
             renderError("Une erreur est survenue");
         }
+    }
+}
+function renderEditPhotoForm(){
+    timeout();
+    let loggedUser = API.retrieveLoggedUser();
+    if(loggedUser.Authorizations.readAccess === 2)
+        UpdateHeader("Liste de photos", "Administrateur")
+    else
+        UpdateHeader("Liste de photos", "Usager");
+    let photo = API.GetPhotosById();
+    if(loggedUser){
+        eraseContent();
+        UpdateHeader("Details", "editPhoto");
+        $("#newPhotoCmd").hide();
+        $("#content").append(`
+        <br/>
+        <form class="form" id="editPhotoForm"'>
+            <fieldset>
+                <legend>Informations</legend>
+                <input  type="text" 
+                        class="form-control" 
+                        name="Titre" 
+                        id="Titre"
+                        placeholder="Titre" 
+                        required 
+                        RequireMessage = 'Veuillez entrez un titre'
+                        InvalidMessage = 'Titre invalide'
+                        CustomErrorMessage ="Une erreur est apparue"/>
+
+                <textarea class="form-control" 
+                        name="Description" 
+                        id="Description" 
+                        rows="6"
+                        placeholder="Description" 
+                        required 
+                        requiremessage="Veuillez entrez une description" 
+                        invalidmessage="Une erreur">
+              </textarea>
+                <label>
+                <input type="checkbox" name="partagerCheckbox"> Partager
+                </label>
+              </fieldset>
+            
+            <fieldset>
+                <legend>Image</legend>
+                <div class='imageUploader' 
+                        newImage='true' 
+                        controlId='Image' 
+                        imageSrc='images/PhotoCloudLogo.png' 
+                        waitingImage="images/Loading_icon.gif">
+            </div>
+            </fieldset>
+   
+            <input type='submit' name='submit' id='editPhoto' value="Enregistrer" class="form-control btn-primary">
+        </form>
+        <div class="cancel">
+            <button class="form-control btn-secondary" id="abortEditPhoto">Annuler</button>
+        </div>
+    `);
+    initFormValidation(); // important do to after all html injection!
+    initImageUploaders();
+    $('#abortEditPhoto').on('click', renderPhotos);
+    $('#editPhotoForm').on("submit", function (event) {
+        let photo = getFormData($('#editPhotoForm'));
+        event.preventDefault();
+        showWaitingGif();
+        editPhoto(photo);
+    });    
     }
 }
 function renderEditProfilForm() {
