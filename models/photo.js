@@ -21,6 +21,7 @@ export default class Photo extends Model {
         let usersRepository = new Repository(new UserModel());
         instance.Owner = usersRepository.get(instance.OwnerId);
         instance.OwnerName = instance.Owner.Name;
+        instance.OwnerPic = instance.Owner.Avatar;
         return instance;
     }
 }
